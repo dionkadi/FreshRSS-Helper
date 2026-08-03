@@ -249,9 +249,17 @@ def _resolve_youtube(handle):
     # 2) RSSHub 社区动态 RSS：按 plan.md 原文保留 @；
     #    若使用的 RSSHub 版本要求不带 @，可去掉下面这一行的 "@"
     url_community = RSSHUB_BASE_URL + "/youtube/community/@" + handle
+    # 3) 视频源回退：YouTube 会拦截机房 IP 对原生 feeds 的抓取（实测 404/500），
+    #    原生源被拒时自动改用 RSSHub 的 channel 路由
+    url_video_fallback = RSSHUB_BASE_URL + "/youtube/channel/" + channel_id
 
-    logger.info("拼装 YouTube 两条 RSS 链接: url_video=%s url_community=%s", url_video, url_community)
-    return [url_video, url_community]
+    logger.info(
+        "拼装 YouTube 两条 RSS 链接: url_video=%s url_community=%s（原生视频源回退=%s）",
+        url_video,
+        url_community,
+        url_video_fallback,
+    )
+    return [(url_video, url_video_fallback), (url_community, None)]
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +275,7 @@ def _resolve_bilibili(handle):
     url_video = RSSHUB_BASE_URL + "/bilibili/user/video/" + uid
     url_community = RSSHUB_BASE_URL + "/bilibili/user/dynamic/" + uid
     logger.info("拼装 B 站两条 RSS 链接: url_video=%s url_community=%s", url_video, url_community)
-    return [url_video, url_community]
+    return [(url_video, None), (url_community, None)]
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +286,9 @@ def _resolve_bilibili(handle):
 #   a  = 添加分类：user/-/label/<分类名>（分类不存在时自动创建）
 # 另外：FreshRSS 内部会对 URL 做 htmlspecialchars，URL 中的 & 会被转义成
 # &amp; 导致匹配失败，因此发送前需把 & 预编码为 %26。
+# fallback_url：原生源被拒（HTTP 400，如 YouTube 拦截机房 IP 抓取）时自动重试。
 # ---------------------------------------------------------------------------
-def _push_to_freshrss(url, category):
+def _push_to_freshrss(url, category, fallback_url=None):
     data = {
         "s": "feed/" + url.replace("&", "%26"),
         "ac": "subscribe",
@@ -302,12 +311,45 @@ def _push_to_freshrss(url, category):
         resp.status_code,
         detail,
     )
+    if resp.status_code == 400 and fallback_url:
+        logger.warning("原生订阅源被拒（HTTP 400），尝试回退源: %s -> %s", url, fallback_url)
+        fb = _push_to_freshrss(fallback_url, category)  # 回退源不再继续回退
+        if fb["ok"]:
+            fb["url"] = fallback_url
+            fb["detail"] = "原生源被 FreshRSS 拒绝，已改用 RSSHub 源: " + fb["detail"]
+        return fb
     return {
         "url": url,
         "ok": resp.status_code == 200,
         "status": resp.status_code,
         "detail": detail,
     }
+
+
+def _existing_feed_urls():
+    """拉取 FreshRSS 现有订阅的 URL 集合，用于推送前查重。
+
+    返回 None 表示查重失败（不阻止推送，由 400 兜底提示）。
+    """
+    try:
+        resp = requests.get(
+            SUBSCRIPTION_LIST_URL,
+            timeout=15,
+            params={"output": "json"},
+            headers={"User-Agent": CHROME_UA, **_greader_headers()},
+        )
+        if resp.status_code != 200:
+            logger.warning("推送前查重失败（HTTP %s），跳过查重", resp.status_code)
+            return None
+        urls = set()
+        for sub in resp.json().get("subscriptions", []) or []:
+            sid = sub.get("id", "")
+            if sid.startswith("feed/"):
+                urls.add(sid[len("feed/"):])
+        return urls
+    except Exception:
+        logger.exception("推送前查重发生异常，跳过查重")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -345,11 +387,23 @@ def api_add_subscription():
         logger.exception("解析订阅链接时发生未预期异常")
         return jsonify({"error": "解析订阅链接时发生内部错误"}), 500
 
-    # 第二步：逐条推送到 FreshRSS
+    # 第二步：逐条推送到 FreshRSS（先查重，避免重复订阅被 400 拒绝）
+    existing = _existing_feed_urls()
     results = []
-    for url in links:
+    for url, fallback in links:
+        if existing is not None and url in existing:
+            logger.info("订阅源已存在，跳过: %s", url)
+            results.append(
+                {
+                    "url": url,
+                    "ok": True,
+                    "status": None,
+                    "detail": "该订阅源已存在，跳过添加（如需调整分类请在 FreshRSS 中操作）",
+                }
+            )
+            continue
         try:
-            results.append(_push_to_freshrss(url, category))
+            results.append(_push_to_freshrss(url, category, fallback))
         except Exception as exc:
             logger.exception("推送订阅 %s 时发生异常", url)
             results.append(
