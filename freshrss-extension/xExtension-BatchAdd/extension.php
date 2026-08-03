@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * 自定义订阅助手入口扩展 (FreshRSS 1.24+)
  *
- * 功能：在 FreshRSS 侧边栏添加一个"批量添加"菜单项，点击后弹出
+ * 功能：在 FreshRSS 页面右上角（齿轮按钮旁）添加一个"+"按钮，点击后弹出
  *       Modal 窗口，以 iframe 内嵌订阅助手工具页面。
  *
  * 安装：将整个 xExtension-BatchAdd 目录复制到 FreshRSS 的 extensions/ 目录，

@@ -1,7 +1,13 @@
-// 订阅助手入口扩展：侧边栏"批量添加" + Modal iframe
+// 订阅助手入口扩展：头部右上角 "+" 图标按钮 + Modal iframe
 // Vanilla JS，无依赖。兼容 FreshRSS 1.24 -> edge。
+// 幂等注入：onContextReady(done 收口) + DOM 检查 + window.__batchAddInjected 三层防重。
 (function () {
 	'use strict';
+
+	// 与 extension.php 的 TOOL_URL 兜底一致
+	const TOOL_URL_FALLBACK = 'http://localhost:8081/';
+	const BUTTON_ID = 'btn-batch-add';
+	const CONTEXT_EVENT = 'freshrss:globalContextLoaded';
 
 	// ----- 读取 js_vars hook 注入的数据（window.context.extensions.batch_add.url） -----
 	function getToolUrl() {
@@ -9,55 +15,129 @@
 				window.context.extensions.batch_add.url) {
 			return window.context.extensions.batch_add.url;
 		}
-		// 兜底（window.context 尚不可用 / 极老版本），应与 extension.php 的 TOOL_URL 一致
-		return 'http://localhost:8081/';
+		return TOOL_URL_FALLBACK;
 	}
 
 	// window.context 由 FreshRSS 的 main.js 解析。
 	// edge 会派发 `freshrss:globalContextLoaded` 事件；FreshRSS 1.24 不会，
-	// 因此轮询作为兜底。
+	// 因此轮询作为兜底。事件与轮询都收口到 finish()，done 标志保证只触发一次。
 	function onContextReady(cb) {
+		let done = false;
+		let timer = null;
+		let tries = 0;
+
+		const stop = function () {
+			if (timer) {
+				clearInterval(timer);
+				timer = null;
+			}
+			document.removeEventListener(CONTEXT_EVENT, onEvent);
+		};
+		const finish = function () {
+			if (done) {
+				return;
+			}
+			done = true;
+			cb(stop);
+		};
+		const onEvent = function () {
+			finish();
+		};
+
 		if (window.context && window.context.extensions) {
-			cb();
+			finish();
 			return;
 		}
-		document.addEventListener('freshrss:globalContextLoaded', cb, { once: true });
-		let tries = 0;
-		const timer = setInterval(function () {
-			if ((window.context && window.context.extensions) || ++tries > 100) {
-				clearInterval(timer);
-				if (window.context && window.context.extensions) {
-					cb();
-				}
+
+		document.addEventListener(CONTEXT_EVENT, onEvent, { once: true });
+		timer = setInterval(function () {
+			tries += 1;
+			if ((window.context && window.context.extensions) || tries > 100) {
+				finish();
 			}
 		}, 50);
 	}
 
-	// ----- 构建侧边栏入口（模拟 aside_feed.phtml 的标记结构） -----
-	function addSidebarEntry() {
-		const sidebar = document.querySelector('#aside_feed #sidebar');
-		if (!sidebar) {
-			return null; // 当前页面没有侧边栏
-		}
-		const li = document.createElement('li');
-		li.className = 'item feed';
-		const a = document.createElement('a');
-		a.className = 'item-title';
-		a.href = '#';
-		a.textContent = '批量添加';
-		a.addEventListener('click', function (ev) {
+	// ----- 构建 "+" 图标按钮（克隆 .btn 自动继承主题的 hover/active/focus 外观） -----
+	function buildAddButton(gear) {
+		const btn = document.createElement('a');
+		btn.id = BUTTON_ID;
+		btn.className = 'btn';
+		btn.href = '#';
+		btn.title = '批量添加';
+		btn.setAttribute('aria-label', '批量添加');
+		// 与齿轮按钮保持间距并对齐（内联即可，无需额外 CSS 文件）
+		btn.style.marginRight = '4px';
+		btn.style.verticalAlign = 'middle';
+		btn.addEventListener('click', function (ev) {
 			ev.preventDefault();
 			openModal();
 		});
-		li.appendChild(a);
-		// 插到末尾的 .tree-bottom 之前，否则直接追加
-		const bottom = sidebar.querySelector('.tree-bottom');
-		if (bottom) {
-			sidebar.insertBefore(li, bottom);
+
+		// 图标：优先由齿轮图标 src 派生 add.svg，加载失败回退默认目录；
+		// emoji 图标模式（齿轮是 <span class="icon">）或无齿轮图标时用 ➕。
+		const gearIcon = gear ? gear.querySelector('img.icon') : null;
+		const gearSrc = gearIcon ? gearIcon.getAttribute('src') : '';
+		if (gearSrc && gearSrc.indexOf('configure.svg') !== -1) {
+			const icon = document.createElement('img');
+			icon.className = 'icon';
+			icon.alt = '+';
+			icon.loading = 'lazy';
+			icon.src = gearSrc.replace('configure.svg', 'add.svg');
+			icon.addEventListener('error', function onIconError() {
+				icon.removeEventListener('error', onIconError);
+				icon.src = '/themes/icons/add.svg'; // 回退到默认图标目录
+			});
+			btn.appendChild(icon);
 		} else {
-			sidebar.appendChild(li);
+			const span = document.createElement('span');
+			span.className = 'icon';
+			span.textContent = '➕';
+			btn.appendChild(span);
 		}
-		return li;
+		return btn;
+	}
+
+	// ----- 注入 "+" 按钮（第二层防重：注入前检查 DOM） -----
+	function inject() {
+		if (document.getElementById(BUTTON_ID)) {
+			return false; // 已注入，跳过
+		}
+		const nav = document.querySelector('.item.configure');
+		if (!nav) {
+			return false; // 头部结构不符合预期，本次放弃
+		}
+		const gear = nav.querySelector('a.dropdown-toggle');
+		const btn = buildAddButton(gear);
+		if (gear) {
+			// 插到齿轮按钮左侧、与其相邻不换行。
+			// 注意：插在 .dropdown 容器之前而不是容器内部，
+			// 以免改变齿轮下拉菜单（absolute 定位）的锚定盒导致弹出位置偏移。
+			nav.insertBefore(btn, nav.firstChild);
+		} else {
+			nav.appendChild(btn);
+		}
+		return true;
+	}
+
+	// ----- 统一入口（第一层收口 + 第三层全局标志保险） -----
+	function run(stop) {
+		// 无论注入是否成功，先清掉轮询与事件监听，收口只执行一次
+		if (typeof stop === 'function') {
+			stop();
+		}
+		// 第三层：全局标志
+		if (window.__batchAddInjected) {
+			return;
+		}
+		// 第二层：DOM 检查
+		if (document.getElementById(BUTTON_ID)) {
+			window.__batchAddInjected = true;
+			return;
+		}
+		if (inject()) {
+			window.__batchAddInjected = true;
+		}
 	}
 
 	// ----- Modal + iframe，样式复用 FreshRSS 主题的 CSS 变量 -----
@@ -78,6 +158,8 @@
 		].join(';');
 
 		const panel = document.createElement('div');
+		panel.setAttribute('role', 'dialog');
+		panel.setAttribute('aria-label', '批量添加');
 		panel.style.cssText = [
 			'width:80vw', 'height:80vh', 'max-width:1000px',
 			'display:flex', 'flex-direction:column',
@@ -95,6 +177,7 @@
 		const close = document.createElement('button');
 		close.type = 'button';
 		close.textContent = '✕';
+		close.setAttribute('aria-label', '关闭');
 		close.style.cssText = 'border:none;background:none;cursor:pointer;color:var(--frss-font-color-dark, #000);font-size:1.1rem';
 		close.addEventListener('click', closeModal);
 
@@ -103,6 +186,7 @@
 
 		const iframe = document.createElement('iframe');
 		iframe.src = url;
+		iframe.title = '订阅助手';
 		iframe.style.cssText = 'flex:1;width:100%;border:none';
 
 		panel.appendChild(head);
@@ -130,5 +214,6 @@
 		}
 	}
 
-	onContextReady(addSidebarEntry);
+	// 第一层：onContextReady 内部 done 标志收口，注入统一走 run()
+	onContextReady(run);
 })();
