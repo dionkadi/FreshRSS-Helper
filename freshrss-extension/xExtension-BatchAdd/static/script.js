@@ -132,10 +132,12 @@
 		const gear = nav.querySelector('a.dropdown-toggle');
 		const btn = buildAddButton(gear);
 		const dropdown = nav.querySelector('.dropdown');
+		let wrap = null;
 
 		if (dropdown) {
-			const wrap = document.createElement('span');
-			wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;vertical-align:middle';
+			wrap = document.createElement('span');
+			// margin-right: 单元格内容右对齐，margin 在右缘留出间距（避免贴边）
+			wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-right:10px';
 			wrap.appendChild(btn); // appendChild 会把元素从原位置移入（按钮尚未挂载）
 			wrap.appendChild(dropdown); // 齿轮容器移入 wrap，下拉定位上下文保持不变
 			nav.insertBefore(wrap, nav.firstChild);
@@ -144,11 +146,12 @@
 			nav.insertBefore(btn, nav.firstChild);
 		}
 
-		// 放宽列宽，让两个按钮在同一行放下；
-		// 并强制单元格内容右对齐：width:auto 后列收缩到内容宽度，
-		// 若内容默认左对齐，按钮会停留在列的左缘，看起来整体向左移。
-		nav.style.width = 'auto';
-		nav.style.minWidth = '110px';
+		// 列宽策略：保持接近主题原始列宽（100px），避免 width:auto 把 configure
+		// 列撑成"吞掉全部剩余空间"（实测 782px），导致搜索等其他列大幅偏移；
+		// 若按钮组实际宽度超出（Ansum/Mapco 等宽内边距主题 ~132px），
+		// 则按实测内容宽度放宽。text-align:right 保证内容贴右缘。
+		const wrapWidth = wrap ? wrap.offsetWidth : (btn.offsetWidth || 0);
+		nav.style.width = Math.max(100, wrapWidth + 12) + 'px';
 		nav.style.textAlign = 'right';
 
 		// 兜底检测：立即查一次；load 后（字体/图标加载完毕可能重排）再查一次
