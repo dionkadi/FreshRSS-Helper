@@ -144,9 +144,12 @@
 			nav.insertBefore(btn, nav.firstChild);
 		}
 
-		// 放宽列宽，让两个按钮在同一行放下
+		// 放宽列宽，让两个按钮在同一行放下；
+		// 并强制单元格内容右对齐：width:auto 后列收缩到内容宽度，
+		// 若内容默认左对齐，按钮会停留在列的左缘，看起来整体向左移。
 		nav.style.width = 'auto';
 		nav.style.minWidth = '110px';
+		nav.style.textAlign = 'right';
 
 		// 兜底检测：立即查一次；load 后（字体/图标加载完毕可能重排）再查一次
 		if (gear) {
