@@ -9,13 +9,15 @@
 
 说明：
 - FRESHRSS_API_PASSWORD 是 FreshRSS 用户设置里单独设置的『API 密码』，不是登录密码。
+- greader 认证流程：先 ClientLogin 换取 token，再携带 Authorization: GoogleLogin auth=<token>
+  访问接口（源码验证：greader.php 不支持 HTTP Basic auth，与 NewsFlash 等客户端一致）。
 - 所有出站请求均使用 requests，依赖仅 flask + requests + 标准库。
 """
 
-import base64
 import logging
 import os
 import re
+import time
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -39,10 +41,14 @@ FRESHRSS_API_PASSWORD = os.environ.get("FRESHRSS_API_PASSWORD", "")
 RSSHUB_BASE_URL = os.environ.get("RSSHUB_BASE_URL", "http://rsshub:1200").rstrip("/")
 PORT = int(os.environ.get("PORT", "8081"))
 
-# FreshRSS 内置的 Google Reader API (greader) 端点
-GREADER_BASE = FRESHRSS_BASE_URL + "/api/greader.php/reader/api/0"
-SUBSCRIPTION_LIST_URL = GREADER_BASE + "/subscription/list"   # 拉取订阅列表（用于收集分类）
-SUBSCRIPTION_EDIT_URL = GREADER_BASE + "/subscription/edit"   # 添加/修改订阅
+# FreshRSS 内置的 Google Reader API (greader) 端点。
+# 认证流程（源码验证，greader.php 不支持 HTTP Basic auth）：
+#   1) POST /api/greader.php/accounts/ClientLogin（Email + Passwd）换取认证 token
+#   2) 后续请求携带 Authorization: GoogleLogin auth=<token>
+GREADER_API = FRESHRSS_BASE_URL + "/api/greader.php"
+CLIENT_LOGIN_URL = GREADER_API + "/accounts/ClientLogin"                # 登录换取 token
+SUBSCRIPTION_LIST_URL = GREADER_API + "/reader/api/0/subscription/list"  # 拉取订阅列表（收集分类）
+SUBSCRIPTION_EDIT_URL = GREADER_API + "/reader/api/0/subscription/edit"  # 添加/修改订阅
 
 # 浏览器 UA：greader 接口与 YouTube 均需伪装成浏览器访问
 CHROME_UA = (
@@ -60,17 +66,45 @@ def _mask(value):
     return value[:2] + "*" * (len(value) - 4) + value[-2:]
 
 
-def _basic_auth_header():
-    """生成 UTF-8 安全的 Basic Auth 头。
+# greader 认证 token 缓存：避免每个请求都重新登录（FreshRSS 密码变更后最多 10 分钟失效）
+_greader_auth_token = None
+_greader_auth_token_at = 0.0
+_GREADER_AUTH_TTL_SECONDS = 600
 
-    requests 自带的 auth=(user, password) 会把凭据按 latin-1 编码，
-    当 FreshRSS 用户名含中文等非 ASCII 字符时会抛 UnicodeEncodeError
-    （requests/auth.py: _basic_auth_str -> username.encode("latin1")）。
-    这里手工按 UTF-8 编码构造 Authorization 头（RFC 7617），
-    ASCII 凭据下行为与原来完全一致。
+
+def _greader_headers():
+    """返回 greader 请求所需的认证头。
+
+    FreshRSS 的 greader.php 只解析 `Authorization: GoogleLogin auth=<token>`，
+    不支持 HTTP Basic auth（源码验证，多个版本一致）；token 通过
+    /accounts/ClientLogin 用 Email + Passwd 参数换取（NewsFlash 等官方客户端同款流程）。
     """
-    raw = "{}:{}".format(FRESHRSS_USER, FRESHRSS_API_PASSWORD).encode("utf-8")
-    return "Basic " + base64.b64encode(raw).decode("ascii")
+    global _greader_auth_token, _greader_auth_token_at
+    now = time.time()
+    if not _greader_auth_token or (now - _greader_auth_token_at) >= _GREADER_AUTH_TTL_SECONDS:
+        resp = requests.post(
+            CLIENT_LOGIN_URL,
+            data={"Email": FRESHRSS_USER, "Passwd": FRESHRSS_API_PASSWORD},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            logger.warning("greader ClientLogin 失败: HTTP %s: %s", resp.status_code, resp.text[:200])
+            raise SubscriptionError(
+                "greader 登录失败（HTTP %s），请检查 FRESHRSS_USER / FRESHRSS_API_PASSWORD "
+                "以及 FreshRSS 的 API 是否已开启" % resp.status_code,
+                status_code=502,
+            )
+        token = None
+        for line in resp.text.splitlines():
+            if line.startswith("Auth="):
+                token = line.split("=", 1)[1].strip()
+                break
+        if not token:
+            raise SubscriptionError("greader ClientLogin 响应中未找到 Auth token", status_code=502)
+        _greader_auth_token = token
+        _greader_auth_token_at = now
+        logger.info("greader ClientLogin 成功，已取得认证 token")
+    return {"Authorization": "GoogleLogin auth=" + _greader_auth_token}
 
 
 # 启动日志：打印配置摘要（密码打码）
@@ -135,13 +169,17 @@ def api_categories():
         resp = requests.get(
             SUBSCRIPTION_LIST_URL,
             timeout=15,
-            headers={"User-Agent": CHROME_UA, "Authorization": _basic_auth_header()},
+            params={"output": "json"},
+            headers={"User-Agent": CHROME_UA, **_greader_headers()},
         )
         if resp.status_code != 200:
             msg = "FreshRSS 订阅列表接口返回 HTTP %s: %s" % (resp.status_code, resp.text[:200])
             logger.warning("获取分类失败: %s", msg)
             return jsonify({"error": msg}), 502
         data = resp.json()
+    except SubscriptionError as err:
+        logger.warning("greader 认证失败: %s", err)
+        return jsonify({"error": str(err)}), err.status_code
     except ValueError:
         logger.exception("FreshRSS 订阅列表响应不是合法 JSON")
         return jsonify({"error": "FreshRSS 返回了非 JSON 响应，请检查 API 是否开启"}), 502
@@ -248,7 +286,7 @@ def _push_to_freshrss(url, category):
     resp = requests.post(
         SUBSCRIPTION_EDIT_URL,
         data=data,
-        headers={"Authorization": _basic_auth_header()},
+        headers=_greader_headers(),
         timeout=20,
     )
     detail = resp.text[:200]
@@ -306,14 +344,14 @@ def api_add_subscription():
     for url in links:
         try:
             results.append(_push_to_freshrss(url, category))
-        except Exception:
+        except Exception as exc:
             logger.exception("推送订阅 %s 时发生异常", url)
             results.append(
                 {
                     "url": url,
                     "ok": False,
                     "status": None,
-                    "detail": "推送过程中发生异常，详见服务端日志",
+                    "detail": str(exc) if isinstance(exc, SubscriptionError) else "推送过程中发生异常，详见服务端日志",
                 }
             )
 
