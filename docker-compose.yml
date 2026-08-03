@@ -4,6 +4,12 @@ services:
     container_name: subscription-helper
     ports:
       - "8081:8081"
+    networks:
+      # 保留本项目默认网络
+      - default
+      # 加入 FreshRSS 所在网络（这样 freshrss / rsshub 服务名才能被 Docker DNS 解析；
+      # 若你的 FreshRSS 网络名不同，用 docker network ls 查看后改成实际名称）
+      - freshrss_default
     environment:
       # FreshRSS 基础地址（容器内访问 FreshRSS 容器名）
       FRESHRSS_BASE_URL: ${FRESHRSS_BASE_URL:-http://freshrss}
@@ -16,3 +22,8 @@ services:
       # 服务监听端口
       PORT: ${PORT:-8081}
     restart: unless-stopped
+
+# 外部网络声明：该网络由 FreshRSS 的 compose 项目创建，这里只加入、不创建
+networks:
+  freshrss_default:
+    external: true
