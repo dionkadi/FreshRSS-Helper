@@ -272,24 +272,30 @@ def _resolve_bilibili(handle):
 
 # ---------------------------------------------------------------------------
 # 推送：通过 greader subscription/edit 接口把一条链接订阅到指定分类
-# 参数说明：
-#   s  = feed/<订阅源URL>，表示订阅源的完整标识
-#   a  = subscribe，表示执行"添加订阅"动作
-#   ac = user/-/label/<分类名>，表示把订阅归入名为 <分类名> 的分类
+# 参数说明（源码验证：greader.php subscriptionEdit()，注意与 plan.md 的描述相反）：
+#   s  = feed/<订阅源URL>，订阅源的完整标识（必须带 feed/ 前缀）
+#   ac = 动作：subscribe / unsubscribe / edit
+#   a  = 添加分类：user/-/label/<分类名>（分类不存在时自动创建）
+# 另外：FreshRSS 内部会对 URL 做 htmlspecialchars，URL 中的 & 会被转义成
+# &amp; 导致匹配失败，因此发送前需把 & 预编码为 %26。
 # ---------------------------------------------------------------------------
 def _push_to_freshrss(url, category):
     data = {
-        "s": "feed/" + url,
-        "a": "subscribe",
-        "ac": "user/-/label/" + category,
+        "s": "feed/" + url.replace("&", "%26"),
+        "ac": "subscribe",
+        "a": "user/-/label/" + category,
     }
+    # 订阅动作会真实抓取订阅源（SimplePie），耗时可能数秒到数十秒，超时放宽
     resp = requests.post(
         SUBSCRIPTION_EDIT_URL,
         data=data,
         headers=_greader_headers(),
-        timeout=20,
+        timeout=60,
     )
     detail = resp.text[:200]
+    if resp.status_code == 400:
+        # 常见原因：该订阅源此前已添加过（重复订阅会被 400 拒绝）
+        detail += "（提示：若该订阅源此前已添加过，重复订阅会被拒绝）"
     logger.info(
         "推送订阅 %s 结果: HTTP %s, 响应摘要: %s",
         url,
