@@ -243,15 +243,16 @@ def _resolve_youtube(handle):
             status_code=422,
         )
 
-    # 拼装两条 RSS 链接：
-    # 1) 原生视频 RSS（官方，无需 RSSHub）
-    url_video = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
-    # 2) RSSHub 社区动态 RSS：按 plan.md 原文保留 @；
-    #    若使用的 RSSHub 版本要求不带 @，可去掉下面这一行的 "@"
+    # 拼装两条 RSS 链接（无"视频+社区"合并路由，两条分开、FreshRSS 中放同一分类）：
+    # 1) 视频源：RSSHub /youtube/channel/<UC ID> —— 原生 feeds/videos.xml 会被
+    #    YouTube 对机房 IP 封锁（实测 404/500 间歇失败）；channel 路由新旧版都接受
+    #    UC 开头的频道 ID（不接受 handle）。若 RSSHub 配了 YOUTUBE_KEY 则走
+    #    Google Data API（googleapis.com），封锁环境下最稳定。
+    url_video = RSSHUB_BASE_URL + "/youtube/channel/" + channel_id
+    # 2) 社区动态源：RSSHub /youtube/community/@handle（按 plan.md 保留 @）
     url_community = RSSHUB_BASE_URL + "/youtube/community/@" + handle
-    # 3) 视频源回退：YouTube 会拦截机房 IP 对原生 feeds 的抓取（实测 404/500），
-    #    原生源被拒时自动改用 RSSHub 的 channel 路由
-    url_video_fallback = RSSHUB_BASE_URL + "/youtube/channel/" + channel_id
+    # 3) 回退：RSSHub 不可用时尝试原生视频源
+    url_video_fallback = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
 
     logger.info(
         "拼装 YouTube 两条 RSS 链接: url_video=%s url_community=%s（原生视频源回退=%s）",
@@ -286,7 +287,7 @@ def _resolve_bilibili(handle):
 #   a  = 添加分类：user/-/label/<分类名>（分类不存在时自动创建）
 # 另外：FreshRSS 内部会对 URL 做 htmlspecialchars，URL 中的 & 会被转义成
 # &amp; 导致匹配失败，因此发送前需把 & 预编码为 %26。
-# fallback_url：原生源被拒（HTTP 400，如 YouTube 拦截机房 IP 抓取）时自动重试。
+# fallback_url：首选源推送失败（任何非 200，如 YouTube 拦截机房 IP 抓取）时自动重试。
 # ---------------------------------------------------------------------------
 def _push_to_freshrss(url, category, fallback_url=None):
     data = {
@@ -311,12 +312,12 @@ def _push_to_freshrss(url, category, fallback_url=None):
         resp.status_code,
         detail,
     )
-    if resp.status_code == 400 and fallback_url:
-        logger.warning("原生订阅源被拒（HTTP 400），尝试回退源: %s -> %s", url, fallback_url)
+    if resp.status_code != 200 and fallback_url:
+        logger.warning("首选订阅源推送失败（HTTP %s），尝试回退源: %s -> %s", resp.status_code, url, fallback_url)
         fb = _push_to_freshrss(fallback_url, category)  # 回退源不再继续回退
         if fb["ok"]:
             fb["url"] = fallback_url
-            fb["detail"] = "原生源被 FreshRSS 拒绝，已改用 RSSHub 源: " + fb["detail"]
+            fb["detail"] = "首选源推送失败，已改用回退源: " + fb["detail"]
         return fb
     return {
         "url": url,
