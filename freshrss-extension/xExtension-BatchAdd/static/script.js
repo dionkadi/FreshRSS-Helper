@@ -98,7 +98,29 @@
 		return btn;
 	}
 
+	// ----- 注入辅助 -----
+
+	// 检测按钮与齿轮是否在同一行（top 差 >2px 视为堆叠）
+	function buttonsAligned(btn, gear) {
+		const btnTop = btn.getBoundingClientRect().top;
+		const gearTop = gear.getBoundingClientRect().top;
+		return Math.abs(btnTop - gearTop) <= 2;
+	}
+
+	// 压缩按钮横向 padding（Ansum/Mapco 等宽 padding 主题的最后手段）
+	function compressButton(btn) {
+		btn.style.paddingLeft = '4px';
+		btn.style.paddingRight = '4px';
+	}
+
 	// ----- 注入 "+" 按钮（第二层防重：注入前检查 DOM） -----
+	// 布局要点（根因：.item.configure 固定列宽 100px，Ansum/Mapco 等主题
+	// `.btn { padding: 0.5rem 1.5rem }` 两个按钮共 ~132px 放不下即换行）：
+	// 1. 把按钮与齿轮的 .dropdown 一起包进 inline-flex span（flex nowrap 永不换行）。
+	//    .dropdown-menu 是 position:absolute;right:0，锚定在 .dropdown（position:relative）
+	//    上，移入 wrap 不影响下拉菜单定位。
+	// 2. 放宽 .item.configure 列宽（width:auto + min-width，内联优先级高于主题与媒体查询）。
+	// 3. 兜底：插入后 + window load 后各检测一次是否仍堆叠，是则压缩按钮横向 padding。
 	function inject() {
 		if (document.getElementById(BUTTON_ID)) {
 			return false; // 已注入，跳过
@@ -109,13 +131,41 @@
 		}
 		const gear = nav.querySelector('a.dropdown-toggle');
 		const btn = buildAddButton(gear);
-		if (gear) {
-			// 插到齿轮按钮左侧、与其相邻不换行。
-			// 注意：插在 .dropdown 容器之前而不是容器内部，
-			// 以免改变齿轮下拉菜单（absolute 定位）的锚定盒导致弹出位置偏移。
-			nav.insertBefore(btn, nav.firstChild);
+		const dropdown = nav.querySelector('.dropdown');
+
+		if (dropdown) {
+			const wrap = document.createElement('span');
+			wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;vertical-align:middle';
+			wrap.appendChild(btn); // appendChild 会把元素从原位置移入（按钮尚未挂载）
+			wrap.appendChild(dropdown); // 齿轮容器移入 wrap，下拉定位上下文保持不变
+			nav.insertBefore(wrap, nav.firstChild);
 		} else {
-			nav.appendChild(btn);
+			// 兜底：没有 .dropdown 容器时直接插到最前
+			nav.insertBefore(btn, nav.firstChild);
+		}
+
+		// 放宽列宽，让两个按钮在同一行放下
+		nav.style.width = 'auto';
+		nav.style.minWidth = '110px';
+
+		// 兜底检测：立即查一次；load 后（字体/图标加载完毕可能重排）再查一次
+		if (gear) {
+			if (!buttonsAligned(btn, gear)) {
+				compressButton(btn);
+			}
+			const recheck = function () {
+				if (!document.getElementById(BUTTON_ID)) {
+					return;
+				}
+				if (!buttonsAligned(btn, gear)) {
+					compressButton(btn);
+				}
+			};
+			if (document.readyState === 'complete') {
+				recheck();
+			} else {
+				window.addEventListener('load', recheck, { once: true });
+			}
 		}
 		return true;
 	}
