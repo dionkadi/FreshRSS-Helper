@@ -4,8 +4,11 @@
 
 职责：
 1. 提供健康检查与分类列表 API（对接 FreshRSS 的 Google Reader API / greader）。
-2. 接收前端表单提交的 平台 / handle / 分类，解析出 RSS 链接（YouTube 视频 RSS + RSSHub 社区动态 RSS）。
-3. 通过 FreshRSS greader 的 subscription/edit 接口把两条链接推送到指定分类。
+2. 接收前端表单提交的 平台 / handle / 分类，解析出 RSS 链接并推送到指定分类。
+3. 支持平台：youtube / bilibili / xiaohongshu / reddit / twitter / instagram / telegram
+   / custom / zhihu_hot / zhihu_daily / weibo_hot / weibo_user / zhihu_user / wechat
+   （youtube 解析 handle 后拼视频+社区两条；zhihu_hot / zhihu_daily / weibo_hot 为固定源
+   免 handle；其余平台拼 1~2 条，见各解析函数注释）。
 
 说明：
 - FRESHRSS_API_PASSWORD 是 FreshRSS 用户设置里单独设置的『API 密码』，不是登录密码。
@@ -323,6 +326,213 @@ def _resolve_bilibili(handle):
 
 
 # ---------------------------------------------------------------------------
+# 小红书解析：校验 24 位十六进制用户 ID，拼装笔记 RSS 链接
+# 配置要求：RSSHub 必须配置 XIAOHONGSHU_COOKIE（登录后 cookies 文件），
+#   加上 XIAOHONGSHU_PROXY 更稳定；否则默认镜像无 Playwright 会返回 503。
+# ---------------------------------------------------------------------------
+def _resolve_xiaohongshu(handle):
+    """校验小红书用户 ID（24 位十六进制，即个人主页 URL 中那串 ID），拼装笔记 RSS 链接。"""
+    user_id = handle.strip().lower()
+    if not re.fullmatch(r"[0-9a-fA-F]{24}", user_id):
+        raise SubscriptionError("小红书请输入 24 位用户 ID（主页链接中那串 ID）", status_code=400)
+
+    url = RSSHUB_BASE_URL + "/xiaohongshu/user/" + user_id + "/notes"
+    logger.info("拼装小红书 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# Reddit 解析：校验用户名（兼容 "u/名字" 输入），拼装官方 .rss 链接
+# 说明：RSSHub master 已无 reddit 路由，只能使用官方 https://www.reddit.com/user/<名>/.rss；
+#   Reddit 已封禁机房 IP（实测 403/429），该源失败率高属预期。
+# ---------------------------------------------------------------------------
+def _resolve_reddit(handle):
+    """校验 Reddit 用户名（兼容 'u/名字' 输入，自动剥离 u/ 前缀），拼装官方 .rss 链接。"""
+    name = handle.strip().lstrip("u/")
+    if not name:
+        raise SubscriptionError("Reddit 用户名不能为空", status_code=400)
+
+    url = "https://www.reddit.com/user/" + name + "/.rss"
+    logger.info("拼装 Reddit RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# X/Twitter 解析：校验用户名（不含空白字符），拼装 RSSHub 路由链接
+# 配置要求：RSSHub 必须配置 TWITTER_AUTH_TOKEN（可多个 token 逗号分隔自动轮换），
+#   否则默认镜像无凭据会返回 503；X 端变动频繁、路由不稳定属已知问题。
+# ---------------------------------------------------------------------------
+def _resolve_twitter(handle):
+    """校验 X/Twitter 用户名（strip + lstrip('@')，含空白字符则报错），拼装 RSS 链接。"""
+    name = handle.strip().lstrip("@")
+    if not name:
+        raise SubscriptionError("X/Twitter 用户名不能为空", status_code=400)
+    if re.search(r"\s", name):
+        raise SubscriptionError("X/Twitter 用户名不能包含空白字符", status_code=400)
+
+    url = RSSHUB_BASE_URL + "/twitter/user/" + name
+    logger.info("拼装 X/Twitter RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# Instagram 解析：校验用户名，拼装 web-api 优先 + private-api 回退两条链接
+# 配置要求：
+#   - /instagram/2/user（web-api）：公开账号免配置；
+#   - /instagram/user（private-api）：需 RSSHub 配置 IG_USERNAME / IG_PASSWORD，
+#     仅私密账号才需要；推送失败时自动回退到该源。
+# ---------------------------------------------------------------------------
+def _resolve_instagram(handle):
+    """校验 Instagram 用户名（strip + lstrip('@')），返回 [(web-api 链接, private-api 回退链接)]。"""
+    name = handle.strip().lstrip("@")
+    if not name:
+        raise SubscriptionError("Instagram 用户名不能为空", status_code=400)
+
+    url_web = RSSHUB_BASE_URL + "/instagram/2/user/" + name
+    url_private = RSSHUB_BASE_URL + "/instagram/user/" + name
+    logger.info("拼装 Instagram RSS 链接: 首选(web-api)=%s 回退(private-api)=%s", url_web, url_private)
+    return [(url_web, url_private)]
+
+
+# ---------------------------------------------------------------------------
+# Telegram 解析：校验公开频道用户名（不带 @），拼装频道 RSS 链接
+# 说明：公开频道免配置；私有频道需 RSSHub 配置
+#   TELEGRAM_SESSION / TELEGRAM_API_ID / TELEGRAM_API_HASH。
+# ---------------------------------------------------------------------------
+def _resolve_telegram(handle):
+    """校验 Telegram 公开频道用户名（strip + lstrip('@')，提示输入不带 @），拼装 RSS 链接。"""
+    name = handle.strip().lstrip("@")
+    if not name:
+        raise SubscriptionError("Telegram 频道用户名不能为空（公开频道请直接填频道名，不带 @）", status_code=400)
+
+    url = RSSHUB_BASE_URL + "/telegram/channel/" + name
+    logger.info("拼装 Telegram RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 自定义 RSS 解析：直接粘贴任意 RSS 订阅源地址
+# 说明：覆盖任意原生 RSS 源（Hacker News / V2EX / 少数派 / 36kr 等）。
+# ---------------------------------------------------------------------------
+def _resolve_custom(handle):
+    """校验自定义 RSS 地址（strip 后须匹配 ^https?://\\S+$），原样作为订阅源。"""
+    url = handle.strip()
+    if not re.fullmatch(r"https?://\S+", url):
+        raise SubscriptionError("请输入以 http(s):// 开头的 RSS 订阅源地址", status_code=400)
+
+    logger.info("拼装自定义 RSS 订阅源: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 知乎热榜解析：固定源，忽略 handle
+# 说明：知乎热榜，免配置。
+# ---------------------------------------------------------------------------
+def _resolve_zhihu_hot(handle):
+    """知乎热榜固定源，忽略 handle 参数。"""
+    url = RSSHUB_BASE_URL + "/zhihu/hot"
+    logger.info("拼装知乎热榜 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 知乎日报解析：固定源，忽略 handle
+# 说明：知乎日报，免配置。
+# ---------------------------------------------------------------------------
+def _resolve_zhihu_daily(handle):
+    """知乎日报固定源，忽略 handle 参数。"""
+    url = RSSHUB_BASE_URL + "/zhihu/daily"
+    logger.info("拼装知乎日报 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 微博热搜榜解析：固定源，忽略 handle
+# 说明：微博热搜榜，免配置。
+# ---------------------------------------------------------------------------
+def _resolve_weibo_hot(handle):
+    """微博热搜榜固定源，忽略 handle 参数。"""
+    url = RSSHUB_BASE_URL + "/weibo/search/hot"
+    logger.info("拼装微博热搜 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 微博用户解析：校验纯数字 uid
+# 说明：需 RSSHub 配置 WEIBO_COOKIES，否则默认镜像无 Puppeteer 会 503。
+# ---------------------------------------------------------------------------
+def _resolve_weibo_user(handle):
+    """校验微博用户 uid（必须为纯数字），拼装用户微博 RSS 链接。"""
+    uid = handle.strip()
+    if not re.fullmatch(r"\d+", uid):
+        raise SubscriptionError("微博用户请输入数字 uid（博主主页控制台执行 $CONFIG.oid 获取）", status_code=400)
+
+    url = RSSHUB_BASE_URL + "/weibo/user/" + uid
+    logger.info("拼装微博用户 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 知乎用户动态解析：校验主页 URL 中的用户 id（不含空白）
+# 说明：建议 RSSHub 配置 ZHIHU_COOKIES，无 cookie 可能被限流。
+# ---------------------------------------------------------------------------
+def _resolve_zhihu_user(handle):
+    """校验知乎用户 id（主页 URL 中那串，如 diygod），拼装用户动态 RSS 链接。"""
+    name = handle.strip()
+    if not name or re.search(r"\s", name):
+        raise SubscriptionError("知乎用户动态请输入主页 URL 中的 id（如 diygod）", status_code=400)
+
+    url = RSSHUB_BASE_URL + "/zhihu/people/activities/" + name
+    logger.info("拼装知乎用户动态 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 微信公众号解析：第三方来源（二十次幂 ershicimi.com）公众号 id
+# 说明：公众号无官方直连 RSS，依赖第三方采集站，可能失效属预期。
+# ---------------------------------------------------------------------------
+def _resolve_wechat(handle):
+    """校验微信公众号在 ershicimi.com 上的 id，拼装第三方采集 RSS 链接。"""
+    wid = handle.strip()
+    if not wid or re.search(r"\s", wid):
+        raise SubscriptionError(
+            "微信公众号请输入二十次幂 ershicimi.com 上该公众号的 id（搜索公众号后从 URL 复制）",
+            status_code=400,
+        )
+
+    url = RSSHUB_BASE_URL + "/wechat/ershicimi/" + wid
+    logger.info("拼装微信公众号 RSS 链接: %s", url)
+    return [(url, None)]
+
+
+# ---------------------------------------------------------------------------
+# 免 handle 平台：固定源，前端无需（也不应该）输入 handle
+# ---------------------------------------------------------------------------
+NO_HANDLE_PLATFORMS = {"zhihu_hot", "zhihu_daily", "weibo_hot"}
+
+# ---------------------------------------------------------------------------
+# 解析器注册表：platform -> 解析函数（handle -> [(url, fallback_url), ...]）
+# fallback_url 为 None 表示无回退；有回退时首选源推送失败会自动重试回退源。
+# ---------------------------------------------------------------------------
+RESOLVERS = {
+    "youtube": _resolve_youtube,
+    "bilibili": _resolve_bilibili,
+    "xiaohongshu": _resolve_xiaohongshu,
+    "reddit": _resolve_reddit,
+    "twitter": _resolve_twitter,
+    "instagram": _resolve_instagram,
+    "telegram": _resolve_telegram,
+    "custom": _resolve_custom,
+    "zhihu_hot": _resolve_zhihu_hot,
+    "zhihu_daily": _resolve_zhihu_daily,
+    "weibo_hot": _resolve_weibo_hot,
+    "weibo_user": _resolve_weibo_user,
+    "zhihu_user": _resolve_zhihu_user,
+    "wechat": _resolve_wechat,
+}
+
+
+# ---------------------------------------------------------------------------
 # 推送：通过 greader subscription/edit 接口把一条链接订阅到指定分类
 # 参数说明（源码验证：greader.php subscriptionEdit()，注意与 plan.md 的描述相反）：
 #   s  = feed/<订阅源URL>，订阅源的完整标识（必须带 feed/ 前缀）
@@ -398,7 +608,8 @@ def _existing_feed_urls():
 
 # ---------------------------------------------------------------------------
 # 路由 4：添加订阅
-# 请求体: {"platform": "youtube|bilibili", "handle": "...", "category": "..."}
+# 请求体: {"platform": "<见 RESOLVERS>", "handle": "...", "category": "..."}
+# 注意：zhihu_hot / zhihu_daily / weibo_hot 为固定源，handle 可省略。
 # ---------------------------------------------------------------------------
 @app.route("/api/add-subscription", methods=["POST"])
 def api_add_subscription():
@@ -410,20 +621,18 @@ def api_add_subscription():
     handle = str(body.get("handle") or "").strip()
     category = str(body.get("category") or "").strip()
 
-    # 参数校验：非法平台 / 缺失参数直接返回 400
-    if platform not in ("youtube", "bilibili"):
-        return jsonify({"error": "platform 参数非法，仅支持 youtube / bilibili"}), 400
-    if not handle:
+    # 参数校验：非法平台 / 缺失参数直接返回 400（固定源平台允许 handle 为空）
+    if platform not in RESOLVERS:
+        supported = " / ".join(sorted(RESOLVERS))
+        return jsonify({"error": "platform 参数非法，支持: %s" % supported}), 400
+    if not handle and platform not in NO_HANDLE_PLATFORMS:
         return jsonify({"error": "handle 参数缺失或为空"}), 400
     if not category:
         return jsonify({"error": "category 参数缺失或为空"}), 400
 
-    # 第一步：解析 handle 并拼装两条 RSS 链接
+    # 第一步：解析 handle 并拼装 RSS 链接（各平台校验逻辑见对应解析函数）
     try:
-        if platform == "youtube":
-            links = _resolve_youtube(handle)
-        else:
-            links = _resolve_bilibili(handle)
+        links = RESOLVERS[platform](handle)
     except SubscriptionError as err:
         logger.warning("解析订阅失败: %s", err)
         return jsonify({"error": str(err)}), err.status_code

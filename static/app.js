@@ -6,6 +6,7 @@
   // -------------------------------------------------------------------------
   const platformSelect = document.getElementById('platform');
   const handleInput = document.getElementById('handle');
+  const platformHint = document.getElementById('platform-hint');
   const categorySelect = document.getElementById('category');
   const categoryStatus = document.getElementById('category-status');
   const categoryStatusText = document.getElementById('category-status-text');
@@ -20,7 +21,40 @@
   const PLATFORM_PLACEHOLDERS = {
     youtube: '@quietcassASMR',
     bilibili: '输入用户 UID',
+    xiaohongshu: '用户 ID（主页链接中的 24 位 ID）',
+    reddit: '用户名（如 quietcass）',
+    twitter: '用户名（不带 @）',
+    instagram: '用户名（不带 @）',
+    telegram: '频道名（不带 @）',
+    custom: '粘贴 RSS 订阅源 URL（如 https://news.ycombinator.com/rss）',
+    zhihu_hot: '无需填写',
+    zhihu_daily: '无需填写',
+    weibo_hot: '无需填写',
+    weibo_user: '数字 uid（博主主页控制台 $CONFIG.oid）',
+    zhihu_user: '主页 URL 中的 id（如 diygod）',
+    wechat: 'ershicimi 公众号 id',
   };
+
+  // 各平台的配置提示（技术文案）；值为空字符串时不显示
+  const PLATFORM_HINTS = {
+    telegram: '公开频道免配置，可直接添加',
+    instagram: '公开账号免配置；私密账号需 RSSHub 配置 IG_USERNAME/IG_PASSWORD',
+    twitter: '需 RSSHub 配置 TWITTER_AUTH_TOKEN，且源不稳定',
+    xiaohongshu: '需 RSSHub 配置 XIAOHONGSHU_COOKIE（建议加代理）',
+    reddit: 'Reddit 可能拒绝机房 IP（403/429），失败属预期',
+    youtube: '',
+    bilibili: '需 RSSHub 配置 BILIBILI_COOKIE_<uid>',
+    custom: '支持任意原生 RSS 源（Hacker News / V2EX / 少数派 / 36kr 等）',
+    zhihu_hot: '免配置，可直接添加',
+    zhihu_daily: '免配置，可直接添加',
+    weibo_hot: '免配置，可直接添加',
+    weibo_user: '需 RSSHub 配置 WEIBO_COOKIES',
+    zhihu_user: '建议 RSSHub 配置 ZHIHU_COOKIES',
+    wechat: '需先在 ershicimi.com 查公众号 id；第三方来源可能失效',
+  };
+
+  // 固定源平台：无需 handle 输入（输入框禁用，提交时 handle 传空）
+  const FIXED_PLATFORMS = ['zhihu_hot', 'zhihu_daily', 'weibo_hot'];
 
   const SUBMIT_LABEL = '一键添加';
   const SUBMIT_BUSY_LABEL = '提交中…';
@@ -122,14 +156,25 @@
   retryBtn.addEventListener('click', loadCategories);
 
   // -------------------------------------------------------------------------
-  // 平台切换：更新 handle placeholder
+  // 平台切换：更新 handle placeholder、禁用态与配置提示
   // -------------------------------------------------------------------------
-  function updatePlaceholder() {
-    handleInput.placeholder = PLATFORM_PLACEHOLDERS[platformSelect.value] || '';
+  function updatePlatformField() {
+    const value = platformSelect.value;
+    const isFixed = FIXED_PLATFORMS.indexOf(value) !== -1;
+
+    handleInput.placeholder = PLATFORM_PLACEHOLDERS[value] || '';
+    handleInput.disabled = isFixed;
+    if (!isFixed) {
+      handleInput.value = '';
+    }
+
+    const hint = PLATFORM_HINTS[value] || '';
+    platformHint.textContent = hint;
+    platformHint.classList.toggle('hidden', !hint);
   }
 
-  platformSelect.addEventListener('change', updatePlaceholder);
-  updatePlaceholder();
+  platformSelect.addEventListener('change', updatePlatformField);
+  updatePlatformField();
 
   // -------------------------------------------------------------------------
   // 表单提交
@@ -142,10 +187,12 @@
     }
 
     const platform = platformSelect.value;
-    const handle = handleInput.value.trim();
+    const isFixed = FIXED_PLATFORMS.indexOf(platform) !== -1;
+    // 固定源平台无需 handle，提交空串（后端会忽略）
+    const handle = isFixed ? '' : handleInput.value.trim();
     const category = categorySelect.value;
 
-    if (!handle) {
+    if (!isFixed && !handle) {
       setFormMessage('请输入用户名 / Handle。', 'error');
       handleInput.focus();
       return;
