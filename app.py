@@ -12,6 +12,7 @@
 - 所有出站请求均使用 requests，依赖仅 flask + requests + 标准库。
 """
 
+import base64
 import logging
 import os
 import re
@@ -57,6 +58,19 @@ def _mask(value):
     if len(value) <= 4:
         return "*" * len(value)
     return value[:2] + "*" * (len(value) - 4) + value[-2:]
+
+
+def _basic_auth_header():
+    """生成 UTF-8 安全的 Basic Auth 头。
+
+    requests 自带的 auth=(user, password) 会把凭据按 latin-1 编码，
+    当 FreshRSS 用户名含中文等非 ASCII 字符时会抛 UnicodeEncodeError
+    （requests/auth.py: _basic_auth_str -> username.encode("latin1")）。
+    这里手工按 UTF-8 编码构造 Authorization 头（RFC 7617），
+    ASCII 凭据下行为与原来完全一致。
+    """
+    raw = "{}:{}".format(FRESHRSS_USER, FRESHRSS_API_PASSWORD).encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
 # 启动日志：打印配置摘要（密码打码）
@@ -120,9 +134,8 @@ def api_categories():
     try:
         resp = requests.get(
             SUBSCRIPTION_LIST_URL,
-            auth=(FRESHRSS_USER, FRESHRSS_API_PASSWORD),
             timeout=15,
-            headers={"User-Agent": CHROME_UA},
+            headers={"User-Agent": CHROME_UA, "Authorization": _basic_auth_header()},
         )
         if resp.status_code != 200:
             msg = "FreshRSS 订阅列表接口返回 HTTP %s: %s" % (resp.status_code, resp.text[:200])
@@ -235,7 +248,7 @@ def _push_to_freshrss(url, category):
     resp = requests.post(
         SUBSCRIPTION_EDIT_URL,
         data=data,
-        auth=(FRESHRSS_USER, FRESHRSS_API_PASSWORD),
+        headers={"Authorization": _basic_auth_header()},
         timeout=20,
     )
     detail = resp.text[:200]
