@@ -137,7 +137,7 @@
 		if (dropdown) {
 			wrap = document.createElement('span');
 			// margin-right: 单元格内容右对齐，margin 在右缘留出间距（避免贴边）
-			wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-right:10px';
+			wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;vertical-align:middle;margin-right:20px';
 			wrap.appendChild(btn); // appendChild 会把元素从原位置移入（按钮尚未挂载）
 			wrap.appendChild(dropdown); // 齿轮容器移入 wrap，下拉定位上下文保持不变
 			nav.insertBefore(wrap, nav.firstChild);
