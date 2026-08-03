@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>订阅助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <p class="page-eyebrow">FreshRSS</p>
+      <h1 class="page-title">订阅助手</h1>
+      <p class="page-subtitle">将视频平台频道订阅到 FreshRSS 指定分类</p>
+    </header>
+
+    <section class="card" aria-label="添加订阅">
+      <form id="subscription-form" novalidate>
+        <div class="form-field">
+          <label for="platform">平台</label>
+          <div class="select-wrap">
+            <select id="platform" name="platform" class="control">
+              <option value="youtube">YouTube</option>
+              <option value="bilibili">Bilibili</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="handle">用户名 / Handle</label>
+          <input
+            type="text"
+            id="handle"
+            name="handle"
+            class="control"
+            placeholder="@quietcassASMR"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+          >
+        </div>
+
+        <div class="form-field">
+          <label for="category">分类</label>
+          <div class="select-wrap">
+            <select id="category" name="category" class="control" disabled>
+              <option value="">加载中…</option>
+            </select>
+          </div>
+
+          <div id="category-status" class="category-status hidden" role="alert">
+            <p id="category-status-text">分类加载失败，无法获取 FreshRSS 分类列表。</p>
+            <button type="button" id="retry-btn" class="retry-btn">重新加载</button>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="submit-btn" class="btn-primary" disabled>一键添加</button>
+        </div>
+      </form>
+
+      <div id="form-message" class="message hidden" role="alert"></div>
+    </section>
+
+    <section id="results" class="results hidden" aria-live="polite">
+      <div class="results-head">
+        <h2 class="results-title">添加结果</h2>
+        <p id="results-summary" class="results-summary"></p>
+      </div>
+      <ul id="results-list" class="results-list"></ul>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

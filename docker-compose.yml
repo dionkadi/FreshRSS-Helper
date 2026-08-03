@@ -1,0 +1,18 @@
+services:
+  subscription-helper:
+    build: .
+    container_name: subscription-helper
+    ports:
+      - "8081:8081"
+    environment:
+      # FreshRSS 基础地址（容器内访问 FreshRSS 容器名）
+      FRESHRSS_BASE_URL: ${FRESHRSS_BASE_URL:-http://freshrss}
+      # FreshRSS 用户名
+      FRESHRSS_USER: ${FRESHRSS_USER:-}
+      # FreshRSS API 密码（注意：不是登录密码）
+      FRESHRSS_API_PASSWORD: ${FRESHRSS_API_PASSWORD:-}
+      # RSSHub 基础地址（RSSHub 容器内部地址）
+      RSSHUB_BASE_URL: ${RSSHUB_BASE_URL:-http://rsshub:1200}
+      # 服务监听端口
+      PORT: ${PORT:-8081}
+    restart: unless-stopped

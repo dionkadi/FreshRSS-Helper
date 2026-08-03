@@ -1,0 +1,413 @@
+/* ---------------------------------------------------------------------------
+   订阅助手 - 样式
+   简洁、专业、干净的工具页；无外部字体 / 图标库
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --border: #e2e5e9;
+  --border-strong: #c8cdd4;
+  --text: #1f2530;
+  --text-secondary: #5b6472;
+  --text-muted: #8a93a3;
+
+  --accent: #2f8f63;
+  --accent-hover: #277a53;
+  --accent-weak: #e7f3ec;
+  --focus-ring: rgba(47, 143, 99, 0.2);
+
+  --danger: #c0392b;
+  --danger-weak: #fbeceb;
+
+  --disabled-bg: #eceef1;
+  --disabled-text: #9aa1ab;
+
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px rgba(16, 24, 40, 0.06);
+
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue",
+    Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   页面框架
+--------------------------------------------------------------------------- */
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 20px 64px;
+}
+
+.page-header {
+  margin-bottom: 28px;
+}
+
+.page-eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.page-title {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   卡片
+--------------------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+/* ---------------------------------------------------------------------------
+   表单控件
+--------------------------------------------------------------------------- */
+
+.form-field {
+  margin-bottom: 18px;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.control {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.control::placeholder {
+  color: var(--text-muted);
+}
+
+.control:hover:not(:disabled) {
+  border-color: #a9b1bc;
+}
+
+.control:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.control:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+/* 下拉框箭头（纯 CSS，无图标库） */
+.select-wrap {
+  position: relative;
+}
+
+.select-wrap select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+}
+
+.select-wrap select:disabled {
+  cursor: not-allowed;
+}
+
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   提交按钮
+--------------------------------------------------------------------------- */
+
+.form-actions {
+  margin-top: 24px;
+}
+
+.btn-primary {
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.btn-primary:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   提示与错误
+--------------------------------------------------------------------------- */
+
+.message {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.message.error {
+  background: var(--danger-weak);
+  border-color: #efc9c5;
+  color: var(--danger);
+}
+
+.category-status {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #efc9c5;
+  border-radius: var(--radius);
+  background: var(--danger-weak);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.category-status p {
+  flex: 1;
+  margin: 0;
+}
+
+.retry-btn {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid #e2b3ae;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--danger);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.retry-btn:hover {
+  background: var(--danger-weak);
+}
+
+.retry-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.18);
+}
+
+/* ---------------------------------------------------------------------------
+   结果列表
+--------------------------------------------------------------------------- */
+
+.results {
+  margin-top: 24px;
+}
+
+.results-head {
+  margin-bottom: 12px;
+}
+
+.results-title {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.results-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.results-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.result-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+}
+
+.result-row.is-success {
+  border-left-color: var(--accent);
+}
+
+.result-row.is-failure {
+  border-left-color: var(--danger);
+  background: #fdfaf9;
+}
+
+.result-badge {
+  flex: none;
+  margin-top: 1px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.result-row.is-success .result-badge {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.result-row.is-failure .result-badge {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.result-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.result-meta {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------------------------
+   响应式
+--------------------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  .page {
+    padding: 28px 14px 44px;
+  }
+
+  .page-title {
+    font-size: 22px;
+  }
+
+  .card {
+    padding: 18px 16px;
+  }
+
+  .category-status {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .retry-btn {
+    align-self: flex-start;
+  }
+}
+
+/* 尊重系统减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .control,
+  .btn-primary,
+  .retry-btn {
+    transition: none;
+  }
+}

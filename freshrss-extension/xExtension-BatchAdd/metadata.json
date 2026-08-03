@@ -1,0 +1,8 @@
+{
+  "name": "Batch Add",
+  "author": "Subscription Helper",
+  "description": "在 FreshRSS 侧边栏添加\"批量添加\"入口，点击弹出 Modal（iframe 内嵌订阅助手工具页）。",
+  "version": "1.0.0",
+  "entrypoint": "BatchAdd",
+  "type": "user"
+}
