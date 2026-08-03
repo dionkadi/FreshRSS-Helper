@@ -8,6 +8,7 @@
   const handleInput = document.getElementById('handle');
   const categorySelect = document.getElementById('category');
   const categoryStatus = document.getElementById('category-status');
+  const categoryStatusText = document.getElementById('category-status-text');
   const retryBtn = document.getElementById('retry-btn');
   const form = document.getElementById('subscription-form');
   const submitBtn = document.getElementById('submit-btn');
@@ -55,9 +56,11 @@
     categoryStatus.classList.add('hidden');
   }
 
-  function setCategoryFailure() {
+  function setCategoryFailure(message) {
     categorySelect.disabled = true;
     categorySelect.innerHTML = '<option value="">分类加载失败</option>';
+    // 展示后端返回的具体错误；无详情时用默认文案
+    categoryStatusText.textContent = message || '分类加载失败，无法获取 FreshRSS 分类列表。';
     categoryStatus.classList.remove('hidden');
   }
 
@@ -88,7 +91,17 @@
     try {
       const res = await fetch('/api/categories');
       if (!res.ok) {
-        throw new Error('HTTP ' + res.status);
+        // 优先透出后端返回的 error 详情，方便定位问题
+        let detail = 'HTTP ' + res.status;
+        try {
+          const data = await res.json();
+          if (data && data.error) {
+            detail = data.error;
+          }
+        } catch (_) {
+          // 响应体不是 JSON 时保留状态码信息
+        }
+        throw new Error(detail);
       }
       const data = await res.json();
       if (!data || !Array.isArray(data.categories)) {
@@ -96,7 +109,12 @@
       }
       renderCategories(data.categories);
     } catch (err) {
-      setCategoryFailure();
+      const genericNetwork = '网络错误，无法连接服务。';
+      const msg =
+        err && err.message && !err.message.includes('Failed to fetch')
+          ? err.message
+          : genericNetwork;
+      setCategoryFailure(msg);
       updateSubmitState();
     }
   }
