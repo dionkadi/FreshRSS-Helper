@@ -161,10 +161,43 @@ def api_health():
 
 # ---------------------------------------------------------------------------
 # 路由 3：拉取 FreshRSS 现有分类列表
-# 调用 greader subscription/list 接口，收集所有订阅条目上出现过的去重分类 label
+# 首选 greader tag/list（FreshRSS 1.25+ 返回全部分类、含空分类；
+# 1.24.x 只含有订阅源的分类）；失败时回退到 subscription/list 反推。
 # ---------------------------------------------------------------------------
-@app.route("/api/categories")
-def api_categories():
+def _categories_via_tag_list():
+    """通过 greader tag/list 获取分类名集合；失败返回 None（由调用方回退）。
+
+    响应结构: {"tags": [{"id": "user/-/label/<名>", "type": "folder"}, ...]}
+    过滤规则（源码验证）：只取 type=='folder' 且 id 以 user/-/label/ 开头的条目；
+    type=='tag' 是文章标签、无 type 的是 user/-/state/... 特殊状态，均排除。
+    分类名服务端已 htmlspecialchars_decode，剥离前缀即得原名。
+    """
+    try:
+        resp = requests.get(
+            GREADER_API + "/reader/api/0/tag/list",
+            timeout=15,
+            params={"output": "json"},
+            headers={"User-Agent": CHROME_UA, **_greader_headers()},
+        )
+        if resp.status_code != 200:
+            logger.warning("tag/list 返回 HTTP %s（%s），回退到 subscription/list", resp.status_code, resp.text[:120])
+            return None
+        categories = set()
+        for tag in resp.json().get("tags", []) or []:
+            if tag.get("type") == "folder":
+                tag_id = tag.get("id", "")
+                if tag_id.startswith("user/-/label/"):
+                    categories.add(tag_id[len("user/-/label/"):])
+        return categories
+    except SubscriptionError:
+        raise
+    except Exception:
+        logger.exception("拉取 tag/list 失败，回退到 subscription/list")
+        return None
+
+
+def _categories_via_subscriptions():
+    """从 greader subscription/list 反推分类（只含有订阅源的分类，老版本兜底）。"""
     try:
         resp = requests.get(
             SUBSCRIPTION_LIST_URL,
@@ -175,29 +208,39 @@ def api_categories():
         if resp.status_code != 200:
             msg = "FreshRSS 订阅列表接口返回 HTTP %s: %s" % (resp.status_code, resp.text[:200])
             logger.warning("获取分类失败: %s", msg)
-            return jsonify({"error": msg}), 502
-        data = resp.json()
+            return None
+        categories = set()
+        for sub in resp.json().get("subscriptions", []) or []:
+            for cat in sub.get("categories", []) or []:
+                label = cat.get("label")
+                if label:
+                    categories.add(label)
+        return categories
+    except SubscriptionError:
+        raise
+    except Exception:
+        logger.exception("拉取订阅列表反推分类失败")
+        return None
+
+
+@app.route("/api/categories")
+def api_categories():
+    try:
+        categories = _categories_via_tag_list()
+        if categories is None:
+            categories = _categories_via_subscriptions()
+        if categories is None:
+            return jsonify({"error": "无法获取 FreshRSS 分类列表，请查看服务端日志"}), 502
+
+        result = sorted(categories)
+        logger.info("获取到分类列表（共 %d 个）: %s", len(result), result)
+        return jsonify({"categories": result})
     except SubscriptionError as err:
         logger.warning("greader 认证失败: %s", err)
         return jsonify({"error": str(err)}), err.status_code
-    except ValueError:
-        logger.exception("FreshRSS 订阅列表响应不是合法 JSON")
-        return jsonify({"error": "FreshRSS 返回了非 JSON 响应，请检查 API 是否开启"}), 502
     except Exception:
-        logger.exception("拉取 FreshRSS 订阅列表时发生异常")
+        logger.exception("拉取 FreshRSS 分类列表时发生异常")
         return jsonify({"error": "无法连接 FreshRSS 或认证失败，请检查 FRESHRSS_BASE_URL / FRESHRSS_USER / FRESHRSS_API_PASSWORD"}), 502
-
-    # 遍历所有订阅，收集 categories 数组里的 label 并去重
-    categories = set()
-    for sub in data.get("subscriptions", []) or []:
-        for cat in sub.get("categories", []) or []:
-            label = cat.get("label")
-            if label:
-                categories.add(label)
-
-    result = sorted(categories)
-    logger.info("获取到分类列表（共 %d 个）: %s", len(result), result)
-    return jsonify({"categories": result})
 
 
 # ---------------------------------------------------------------------------
